@@ -1,0 +1,175 @@
+连接好之后，红外接收器和pi的gpio接口默认输出high，当接收到红外
+遥控器信号时候，会转为low，此时可以判断按下了遥控器的按钮
+为了防止程序处理其他事物而延误检测下降延，可以给这个gpio接口
+加入GPIO.add_event_detect(pin,GPIO.FALLING/GPIO.RISING,callbackfunc）
+
+
+
+
+＋＋＋＋＋＋＋＋＋重要＋＋＋＋＋＋＋＋＋＋＋＋＋
+梳理一下(使用班机投影遥控器测试成功）没有按照网络有些教程，配置/etc/modules：
+1）安装lirc，新版系统默认都有
+2）修改系统启动配置 sudo nano /boot/config.txt
+   加入toverlay=lirc-rpi,gpio_in_pin=19，gpio_out_pin=23。这里19和23看你具体红外接收和红外发送的gpio口
+   
+3）给lirc配置硬件 sudo nano /etc/lirc/hardware.conf
+   加入：
+   LIRCD_ARGS="--uinput --listen"
+   DRIVER=“default"
+   LOAD_MODULES=true
+   DEVICE="/dev/lirc0"
+   MODULES="lirc_rpi"
+4）reboot之后，使用lsmod查看有无lirc_rpi模块，没有的华使用sudo modprobe lirc_rpi gpio_in_pin=19来启动他
+5）关闭lircd服务 ,使用mode2测试是否能接收到信号 ,如果能收到一堆space，pulse信号，说明红外接收没问题了。
+   sudo /etc/init.d/lircd stop
+   mode2 -d /dev/lirc0
+6）关闭lircd服务，使用irrecord --list-namespace来查看可以使用的按键名称，一般是KEY或者BTN开头，找几个自己需要的记录下
+7）使用irrecord -d /dev/lirc0 ~/lircd.conf 来按照提示记录遥控按键名和代码的对应关系（如何记录参考下面对应部分）
+8）记录好之后，使用 sudo cp ~/lircd.conf /etc/lirc/lircd.conf 来覆盖lirc中的配置文件
+9）打开lircd服务，sudo /etc/init.d/lircd start
+10)运行irw，然后按动遥控的对应按键看有无输出。（这里出了很多问题，使用书每排套装中的遥控器录制时候，有时候能录制上，有时候
+   录制不上，提示cannot decode data.好不容易录制好了，在使用irw测试的时候没有任何输出，后来换了班级的遥控好了）
+11）10没有问题之后，修改／etc/lirc/irexec.lircrc的内容，这个内容是将按键名和脚本对应，因此可以使用按键控制系统发出指令
+   指令可以是shell脚本，也可以是对python程序的调用，所以可以预先编制好python程序，针对不同的按键执行不同程序完成不同效果
+12）修改好之后，使用sudo cp /etc/lirc/irexec.lircrc  /etc/lirc/lircrc   因为后面执行irexec时候需要这个文件名
+
+其他问题参考下面的配置说明
+  
+    
+
+配置说明
+首先需要安装lirc驱动，sudo apt-get install lirc
+然后需要连接红外接收头，并记录起gpio针脚
+修改文件：
+sudo nano /boot/config.txt 
+加入dtoverlay=lirc-rpi,gpio_in_pin=19(19为红外输入的gpio针脚，bcm编码）经过测试，这里必须加入红外接受的gpio口，否则
+使用mode2 -d /dev/lirc0 检测时候接收不到红外信号,lirc-rpi 不能是下划线_,否则mode2检测会打不开设备
+运行lsmod命令，查看列表中是否有“lirc_rpi”，若没有，运行sudo modprobe lirc_rpi gpio_in_pin=19 gpio_out_pin=24加载驱动
+运行sudo apt-get install lirc，安装lirc。LIRC (Linux Infrared remote control)是一个linux系统下开源的软件包。 
+这个软件可以让你的Linux系统能够接收及发送红外线信号。
+sudo nano /etc/lirc/hardware.conf,修改以下信息
+
+    LIRCD_ARGS="--uinput"
+
+    DRIVER=“default"   这里的驱动要主义，选择错误，在irrecord的时候会出现 cannot decode data错误，可以使用lircd --driver=help、
+查看支持的驱动，不知道就选择default
+
+
+    DEVICE="/dev/lirc0" ```
+    MODULES="lirc_rpi"    注意是下划线_
+
+再运行 sudo nano /etc/modules，添加下面两行信息：
+
+       lirc_dev     
+       lirc-rpi gpio_in_pin=19 gpio_out_pin=20     ＃bcm编码   注意不是下划线_
+重启sudo reboot
+sudo /etc/init.d/lircd stop(必须现停止红外服务，才能开始下面的红外信号接受）
+sudo mode2 –d /dev/lirc0，按遥控上的键，此时应有脉冲出现。我选择的是NEC协议的红外遥控器
+space 16300
+pulse 95
+space 28794
+pulse 80
+space 19395
+
+
+reboot 这里要重启一下，然后关闭服务，直接开始录制，不然容易出现cannot decode data问题
+sudo /etc/init.d/lircd stop
+irrecord --list-namespace看一下能用的键名有哪些 
+irrecord -d /dev/lirc0 ~/lircd.conf执行红外编码录制命令，然后跟着指令一步一步走，（这里主义，在正式开始记录之前，需要
+测试按键，一般是随机按动遥控器上的按键，每个保证一秒左右，会出现1到10个以内的点，然后就这样随即的按动所有的键，会出现很多点，好几行
+直到系统自动提示停止才可以后面的录制。）
+这个程序会自动算出你按下的遥控器按键的编码和时长，并录制下来记录在~/lircd.conf文件中 
+sudo cp ~/lircd.conf /etc/lirc/lircd.conf将录制好的~/lircd.conf文件覆盖lirc软件的相应文件 
+sudo /etc/init.d/lircd restart，重启LIRC软件 
+irsend LIST /home/pi/lircd.conf ""，查看录制好可以使用的按键名 
+注意，将会看到类似以下的内容
+
+irsend: 000000000000c837 KEY_VOLUMEDOWN
+irsend: 00000000000048b7 KEY_VOLUMEUP
+irsend: 00000000000008f7 KEY_VIDEO_PREV
+irsend: 0000000000008877 KEY_VIDEO_NEXT
+
+或者使用 irw命令，按下刚才学习到的键，屏幕上会有相应的输出 
+保证红外发射二极管连接正确的情况下，发射命令：
+
+irsend SEND_ONCE /home/pi/lircd.conf KEY_1
+
+KEY_1是我选择的学习之后的键
+
+12.然后我在单片机上写了一个接收红外信号的程序，此时能接收到KEY_1，大功告成！
+
+
+准备就绪之后：
+重启lirc软件，并执行irw命令，测试遥控器与接收模块是否工作正常：
+
+sudo /etc/init.d/lirc start
+irw
+执行完毕后，按下遥控器的任意键，确保能正确输出所按下按钮的名称。例如：
+
+0000000000ffa25d 00 KEY_CHANNELDOWN /etc/lirc/lircd.conf
+0000000000ffa25d 01 KEY_CHANNELDOWN /etc/lirc/lircd.conf
+0000000000ffa25d 00 KEY_CHANNELUP /etc/lirc/lircd.conf
+0000000000ffa25d 01 KEY_CHANNELUP /etc/lirc/lircd.conf
+0000000000ffa25d 00 KEY_CHANNEL /etc/lirc/lircd.conf
+0000000000ffa25d 01 KEY_CHANNEL /etc/lirc/lircd.conf
+0000000000ffa25d 00 KEY_PLAY /etc/lirc/lircd.conf
+0000000000ffa25d 01 KEY_PLAY /etc/lirc/lircd.conf
+0000000000ffa25d 00 KEY_VOLUMEUP /etc/lirc/lircd.conf
+0000000000ffa25d 01 KEY_VOLUMEUP /etc/lirc/lircd.conf
+7.配置~/.lircrc文件把按键与需要出发的行为进行关联，在~/.lircrc文件中增加如下内容：
+
+begin
+   prog = irexec
+   button = KEY_PLAY
+   config = sudo python /home/pi/testIR.py
+end
+begin
+   prog = irexec
+   button = KEY_CHANNEL
+   config = sudo python /home/pi/test_CHANNEL.py
+end
+本例中使用继电器测试功能，目的是当按下遥控器的Play按钮时，继电器接通，再次按下时，继电器断开。
+关于继电器的连接不再赘述，本例中将继电器的IN接口接到了树莓派的GPIO-27，testIR.py的内容如下：
+
+import RPi.GPIO as GPIO
+
+PIN = 27
+
+GPIO.setmode(GPIO.BCM)
+GPIO.setwarnings(False)
+
+GPIO.setup(PIN, GPIO.IN)
+GPIO.setup(PIN, GPIO.OUT)
+
+# 本例中GPIO的电平与继电器的开合对应情况为：
+# 低电平--LOW--input值为0--继电器接通
+# 高电平--HIGH--input值为1--继电器断开
+
+if GPIO.input(PIN) == 0:
+    GPIO.output(PIN, GPIO.HIGH)
+else:
+    GPIO.output(PIN, GPIO.LOW)
+将".lircrc"文件与上述的py文件放到"/home/pi/"目录下，保存。
+最后，重启lirc软件并执行"irexec"命令：
+
+sudo /etc/init.d/lirc restart
+irexec
+当按下遥控器的Play按钮时，继电器接通，再次按下时，继电器断开。表示测试成功。
+
+作者：duyi324
+链接：https://www.jianshu.com/p/9cfb0bf02006
+來源：简书
+简书著作权归作者所有，任何形式的转载都请联系作者获得授权并注明出处。
+
+问题：
+sudo mode2 -d /dev/lirc0
+
+显示paritial  read 8 bytes on device /dev/lirc0  然后自动退出
+
+解决方法：
+
+要么在/etc/lirc/lirc_options.conf把driver = devinput改成driver = default
+
+要不执行
+
+sudo mode2 --driver default --device /dev/lirc0
